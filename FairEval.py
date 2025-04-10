@@ -5,6 +5,7 @@ import time
 
 import openai
 from tqdm import tqdm
+from dotenv import load_dotenv
 
 MAX_API_RETRY = 10000
 REQ_TIME_GAP = 4
@@ -13,12 +14,13 @@ parser = argparse.ArgumentParser()
 parser.add_argument("-q", "--question-file")
 parser.add_argument("-a", "--answer-file-list", nargs="+", default=[])
 parser.add_argument('-o', '--output', help='Output file (defaults to stdout)')
-parser.add_argument("-m", "--eval-model", default="gpt-3.5-turbo-0301")
+parser.add_argument("-m", "--eval-model", default="gpt-4")
 parser.add_argument("-k", "--k", type=int, default=3)
 parser.add_argument("-b", "--bpc", type=int, default=1)
 
 args = parser.parse_args()
 
+'''
 if args.eval_model == "gpt-4":
     cost_per_promtp_token = 0.03 / 1000
     cost_per_completion_token = 0.06 / 1000
@@ -27,10 +29,13 @@ elif args.eval_model == "gpt-3.5-turbo-0301":
     cost_per_completion_token = 2/ 10**6
 else:
     raise ValueError("Invalid evaluator name")
+'''
+load_dotenv()
 
-
-os.environ["OPENAI_API_KEY"] = "sk-" 
-openai.api_key = os.environ["OPENAI_API_KEY"]
+openai.api_type = "azure"
+openai.api_base = os.environ['OPEN_AI_API_BASE']
+openai.api_version = os.environ['OPEN_AI_API_VERSION']
+openai.api_key = os.environ['OPEN_AI_API_KEY']
 
 def gen_prompt(ques, ans1, ans2):
     sys_prompt = 'You are a helpful and precise assistant for checking the quality of the answer.'
@@ -51,8 +56,20 @@ def gen_prompt(ques, ans1, ans2):
 def query_gpt(system_prompt, uer_prompt):
     for i in range(MAX_API_RETRY):
         try:
+            print()
             response = openai.ChatCompletion.create(
-                model=args.eval_model,
+              # engine="gpt-35-turbo",
+              engine="gpt-4",
+              messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": uer_prompt},
+                ],
+                temperature=1,
+                max_tokens=512,
+                n=args.k)
+            '''
+            response = openai.ChatCompletion.create(
+                engine=args.eval_model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": uer_prompt},
@@ -61,11 +78,13 @@ def query_gpt(system_prompt, uer_prompt):
                 max_tokens=512,
                 n=args.k
             )
+            '''
             return response
         except openai.error.RateLimitError:
             print('rate limit')
             time.sleep(30)
         except Exception as e:
+            print(e)
             print('error')
     raise RuntimeError(f"Failed after {MAX_API_RETRY} retries.")
 
@@ -74,8 +93,8 @@ def get_eval(ques, ans1, ans2):
     cost = 0
     system_prompt, user_prompt = gen_prompt(ques, ans1, ans2)
     response = query_gpt(system_prompt, user_prompt)
-    cost += response['usage']['prompt_tokens'] * cost_per_promtp_token
-    cost += response['usage']['completion_tokens'] * cost_per_completion_token
+    # cost += response['usage']['prompt_tokens'] * cost_per_promtp_token
+    # cost += response['usage']['completion_tokens'] * cost_per_completion_token
     all_scores = []
     contents = []
     contents_bpc = []
@@ -90,8 +109,8 @@ def get_eval(ques, ans1, ans2):
     if args.bpc == 1:
         system_prompt, user_prompt_bpc = gen_prompt(ques, ans2, ans1)
         response_bpc = query_gpt(system_prompt, user_prompt_bpc)
-        cost += response_bpc['usage']['prompt_tokens'] * cost_per_promtp_token
-        cost += response_bpc['usage']['completion_tokens'] * cost_per_completion_token
+        # cost += response_bpc['usage']['prompt_tokens'] * cost_per_promtp_token
+        # cost += response_bpc['usage']['completion_tokens'] * cost_per_completion_token
         for choice in response_bpc["choices"]:
             content = choice["message"]["content"]
             score2, score1 = parse_score_from_review(content)
@@ -137,7 +156,7 @@ if __name__ == "__main__":
     total_len = len(question_jsons)
     question_idx_list = list(range(total_len))
     
-    for i in tqdm(question_idx_list):
+    for i in tqdm(question_idx_list[:1]):
         assert (
             answer1_jsons[i]["question_id"]
             == question_jsons[i]["question_id"]
@@ -181,4 +200,3 @@ if __name__ == "__main__":
     
     print(f'Evaluation results (model1_vs_model2):\n{model1_vs_model2}')
     print(f'Evaluation cost: ${total_cost:.2f}.')
-

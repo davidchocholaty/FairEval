@@ -1,6 +1,6 @@
-m1=gpt35
-m2=vicuna-13b
-eval_model=gpt-3.5-turbo-0301
+m1=gpt-4
+m2=gpt-4
+eval_model=gpt-4
 bpc=1
 k=3
 python3 FairEval.py \
